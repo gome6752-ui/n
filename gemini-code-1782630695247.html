@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Tracker X - V5.0 Sleek UI Build</title>
+  
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+  
+  <style>
+    :root { 
+        --main-color: #00e5ff; 
+        --lock-color: #ff3d00; 
+        --bg-glass: rgba(5, 10, 15, 0.7);
+    }
+    body { margin: 0; background: #000; color: #fff; font-family: 'Consolas', 'Courier New', monospace; overflow: hidden; }
+    
+    #viewfinder { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    
+    #zoom-container { 
+        width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; 
+        transform-origin: center; transition: transform 0.2s ease-out, filter 0.2s; 
+    }
+    
+    .ai-enhanced-zoom {
+        filter: contrast(1.2) saturate(1.1) brightness(1.05); 
+        image-rendering: crisp-edges;
+    }
+
+    video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+    canvas#overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 10; cursor: crosshair; }
+    
+    /* Sleek UI Updates */
+    #hud { position: absolute; top: 25px; left: 25px; z-index: 20; }
+    .btn { 
+        background: var(--bg-glass); border: 1px solid rgba(0, 229, 255, 0.5); color: var(--main-color); 
+        padding: 12px 20px; border-radius: 30px; font-weight: bold; cursor: pointer; 
+        letter-spacing: 1px; backdrop-filter: blur(10px); transition: all 0.3s ease;
+    }
+    .btn:hover { background: rgba(0, 229, 255, 0.2); box-shadow: 0 0 15px rgba(0,229,255,0.4); }
+    
+    #status { 
+        position: absolute; top: 25px; right: 25px; z-index: 20; background: var(--bg-glass); 
+        padding: 12px 20px; border: 1px solid rgba(0, 229, 255, 0.5); border-radius: 30px;
+        color: var(--main-color); font-size: 12px; text-align: right; backdrop-filter: blur(10px); 
+    }
+
+    /* NEW: Active Speaker Indicator */
+    #voice-indicator {
+        position: absolute;
+        bottom: 40px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 320px;
+        background: var(--bg-glass);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 40px;
+        padding: 15px 25px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        backdrop-filter: blur(12px);
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    /* States for the Speaker Indicator */
+    #voice-indicator.idle { opacity: 0.7; transform: translateX(-50%) scale(0.95); }
+    #voice-indicator.voice-jarvis { 
+        border-color: var(--main-color); 
+        box-shadow: 0 0 25px rgba(0, 229, 255, 0.5), inset 0 0 15px rgba(0, 229, 255, 0.2); 
+        background: rgba(0, 30, 40, 0.85);
+    }
+    #voice-indicator.voice-user { 
+        border-color: var(--lock-color); 
+        box-shadow: 0 0 25px rgba(255, 61, 0, 0.5), inset 0 0 15px rgba(255, 61, 0, 0.2); 
+        background: rgba(40, 15, 0, 0.85);
+    }
+
+    #speaker-name { font-weight: bold; font-size: 14px; letter-spacing: 2px; margin-bottom: 6px; transition: color 0.3s; }
+    .name-idle { color: #888; }
+    .name-jarvis { color: var(--main-color); text-shadow: 0 0 8px var(--main-color); }
+    .name-user { color: var(--lock-color); text-shadow: 0 0 8px var(--lock-color); }
+    
+    #speaker-text { font-size: 13px; color: #ddd; max-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; opacity: 0.9; }
+
+    /* Modernized Debug Menu */
+    #menu { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 5, 10, 0.95); z-index: 100; display: none; padding: 40px 20px; box-sizing: border-box; overflow-y: auto; backdrop-filter: blur(15px); }
+    .menu-content { max-width: 600px; margin: 0 auto; }
+    .item { margin-bottom: 20px; background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; border-left: 4px solid var(--main-color); }
+    .label { font-size: 13px; color: #fff; margin-bottom: 12px; display: block; font-weight: bold; letter-spacing: 1px; }
+    .hw-status { font-size: 11px; color: #ff3d00; display: block; margin-top: 8px; }
+    
+    select, input[type="range"], input[type="password"] { width: 100%; padding: 12px; background: rgba(0,0,0,0.5); color: var(--main-color); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; box-sizing: border-box; outline: none; }
+    select:focus, input:focus { border-color: var(--main-color); }
+    
+    .close-btn { background: var(--lock-color); width: 100%; padding: 18px; border-radius: 12px; border: none; color: white; font-weight: bold; font-size: 16px; margin-top: 30px; cursor: pointer; letter-spacing: 2px; transition: 0.2s; }
+    .close-btn:hover { background: #e63600; box-shadow: 0 0 15px rgba(255,61,0,0.5); }
+    
+    #overlay-effects { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; display: none; }
+    body.nvg-mode video { filter: brightness(1.2) contrast(1.8) sepia(1) hue-rotate(75deg) saturate(4); }
+    body.nvg-mode #overlay-effects { display: block; background: url('data:image/svg+xml;utf8,<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity="0.4"/></svg>'), radial-gradient(circle, rgba(0,255,0,0) 30%, rgba(0,10,0,0.95) 100%); mix-blend-mode: hard-light; }
+    body.thermal-mode video { filter: invert(1) hue-rotate(200deg) saturate(5); }
+  </style>
+</head>
+<body class="normal-mode">
+
+  <div id="hud"><button class="btn" onclick="document.getElementById('menu').style.display='block'">[ DEBUG MENU ]</button></div>
+  <div id="status">SYS: ONLINE<br>AI: INITIALIZING...</div>
+  
+  <div id="viewfinder">
+    <div id="zoom-container">
+        <video id="webcam" autoplay playsinline muted></video>
+    </div>
+    <canvas id="overlay"></canvas>
+    <div id="overlay-effects"></div>
+    
+    <div id="voice-indicator" class="idle">
+        <span id="speaker-name" class="name-idle">SYSTEM IDLE</span>
+        <div id="speaker-text">Waiting for wake word: "Jarvis"</div>
+    </div>
+  </div>
+
+  <div id="menu">
+    <div class="menu-content">
+        <h2 style="color:var(--main-color); text-align: center; margin-bottom: 40px; letter-spacing: 3px;">SYSTEM DEBUG & CONFIGURATION</h2>
+        
+        <div class="item" style="border-left-color: #ff3d00; background: rgba(255,61,0,0.05);">
+            <label class="label" style="color: #ff3d00;">[ CRITICAL ] NEURAL LINK API KEY</label>
+            <input type="password" id="apiKey" placeholder="Paste Gemini API Key here...">
+            <span class="hw-status" style="color: #aaa;">Required to establish the vision network link.</span>
+        </div>
+
+        <div class="item">
+            <label class="label">VOICE OPERATIONS (WAKE WORD: "JARVIS")</label>
+            <select id="jarvisMode" onchange="toggleJarvisInterface()">
+                <option value="off">OFF</option>
+                <option value="on">ON (VOICE OPERATIONAL)</option>
+            </select>
+            <span class="hw-status" id="jarvisStatus" style="color: #aaa;">CORE DEACTIVATED</span>
+        </div>
+
+        <div class="item">
+            <label class="label">1. OPTICAL ZOOM (HARDWARE LENS)</label>
+            <input type="range" id="optZoom" min="1" max="1" step="0.1" value="1" oninput="applyOpticalZoom()" disabled>
+            <span class="hw-status" id="optStatus">SCANNING FOR HARDWARE LENS...</span>
+        </div>
+
+        <div class="item">
+            <label class="label">2. DIGITAL ZOOM (SOFTWARE CROP)</label>
+            <input type="range" id="digZoom" min="1" max="5" step="0.1" value="1" oninput="applyDigitalZoom()">
+        </div>
+
+        <div class="item">
+            <label class="label">3. AI ZOOM CLARITY</label>
+            <select id="aiZoom" onchange="applyDigitalZoom()">
+                <option value="off">STANDARD (SOFT)</option>
+                <option value="on">AI ENHANCED (CRISP)</option>
+            </select>
+        </div>
+
+        <div class="item">
+            <label class="label">4. LOW-LIGHT AI AMPLIFIER</label>
+            <select id="lowLightBoost">
+                <option value="off">OFF</option>
+                <option value="on">ON (ISO MATRIX GAIN BOOST)</option>
+            </select>
+        </div>
+
+        <div class="item">
+            <label class="label">5. TRAJECTORY FORECASTING</label>
+            <select id="pathPredictor">
+                <option value="off">OFF</option>
+                <option value="on">ON</option>
+            </select>
+        </div>
+
+        <div class="item">
+            <label class="label">6. MANUAL TARGET SELECTION</label>
+            <select id="clickToLock" onchange="if(this.value=='off') lockedTargetId=null;">
+                <option value="off">OFF</option>
+                <option value="on">CLICK TO LOCK</option>
+            </select>
+        </div>
+
+        <div class="item">
+            <label class="label">VISION MODE</label>
+            <select id="vMode" onchange="applyFilters()">
+                <option value="normal">STANDARD</option>
+                <option value="nvg">MIL-SPEC NIGHT VISION</option>
+                <option value="thermal">THERMAL INVERT</option>
+            </select>
+        </div>
+
+        <div class="item">
+            <label class="label">TARGET LOCK ALGORITHM</label>
+            <select id="tMode">
+                <option value="all">AUTO-TRACK ALL</option>
+                <option value="person">BIOMETRIC (PERSON ONLY)</option>
+                <option value="car">VEHICULAR (CAR ONLY)</option>
+            </select>
+        </div>
+        
+        <button class="close-btn" onclick="document.getElementById('menu').style.display='none'">APPLY CONFIGURATION</button>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('webcam'), canvas = document.getElementById('overlay'), ctx = canvas.getContext('2d');
+    let model, uiColor = "#00e5ff", lockColor = "#ff3d00";
+    let videoTrack = null, isPredicting = false; 
+    const aiCanvas = document.createElement('canvas');
+    const aiCtx = aiCanvas.getContext('2d', { willReadFrequently: true });
+    let trackedObjects = [], latestPredictions = [];
+    
+    let lockedTargetId = null;
+    let voiceEngine = null;
+    let jarvisAttentive = false; 
+    let recognitionActive = false; 
+    let conversationHistory = [];
+
+    // NEW ACTIVE SPEAKER FUNCTION
+    function setSpeaker(role, text) {
+        const indicator = document.getElementById('voice-indicator');
+        const nameEl = document.getElementById('speaker-name');
+        const textEl = document.getElementById('speaker-text');
+
+        if (role === 'user') {
+            indicator.className = 'voice-user';
+            nameEl.className = 'name-user';
+            nameEl.innerText = 'USER';
+            textEl.innerText = `"${text}"`;
+        } else if (role === 'jarvis') {
+            indicator.className = 'voice-jarvis';
+            nameEl.className = 'name-jarvis';
+            nameEl.innerText = 'J.A.R.V.I.S.';
+            textEl.innerText = text;
+        } else {
+            indicator.className = 'idle';
+            nameEl.className = 'name-idle';
+            nameEl.innerText = 'SYSTEM IDLE';
+            textEl.innerText = text || 'Listening for wake word...';
+        }
+    }
+
+    function applyFilters() {
+        const vMode = document.getElementById('vMode').value;
+        document.body.className = vMode === 'nvg' ? 'nvg-mode' : vMode === 'thermal' ? 'thermal-mode' : 'normal-mode';
+    }
+
+    function applyOpticalZoom() {
+        if (!videoTrack) return;
+        videoTrack.applyConstraints({ advanced: [{ zoom: document.getElementById('optZoom').value }] }).catch(e => {});
+    }
+
+    function applyDigitalZoom() {
+        const dZoom = document.getElementById('digZoom').value;
+        const container = document.getElementById('zoom-container');
+        container.style.transform = `scale(${dZoom})`;
+        if (document.getElementById('aiZoom').value === 'on' && dZoom > 1.0) {
+            container.classList.add('ai-enhanced-zoom');
+        } else {
+            container.classList.remove('ai-enhanced-zoom');
+        }
+    }
+
+    canvas.addEventListener('click', (e) => {
+        if (document.getElementById('clickToLock').value !== 'on') return;
+        const rect = canvas.getBoundingClientRect();
+        const clickX = ((e.clientX - rect.left) / rect.width) * canvas.width;
+        const clickY = ((e.clientY - rect.top) / rect.height) * canvas.height;
+        const dZoom = parseFloat(document.getElementById('digZoom').value);
+        let closestTrack = null, minDistance = 120; 
+
+        trackedObjects.forEach(track => {
+            const centerX = (canvas.width/2) + (track.x + track.w/2 - canvas.width/2) * dZoom;
+            const centerY = (canvas.height/2) + (track.y + track.h/2 - canvas.height/2) * dZoom;
+            const dist = Math.hypot(clickX - centerX, clickY - centerY);
+            if (dist < minDistance) { minDistance = dist; closestTrack = track; }
+        });
+
+        if (closestTrack) {
+            lockedTargetId = closestTrack.id;
+            speakJarvis(`Isolating tracking coordinates for Target ID ${closestTrack.id}.`, false);
+        } else {
+            lockedTargetId = null;
+        }
+    });
+
+    // UPDATED FOR NEW UI
+    function speakJarvis(phrase, appendFollowUp = true) {
+        if (document.getElementById('jarvisMode').value !== 'on') return;
+        
+        if (appendFollowUp) {
+            const followUps = [
+                " Do you need anything else today, sir?",
+                " Is there anything else you require assistance with, sir?",
+                " Standing by. Do you have any other questions for me, sir?",
+                " Will there be anything else for today, sir?"
+            ];
+            phrase += followUps[Math.floor(Math.random() * followUps.length)];
+        }
+
+        // Update active speaker UI
+        setSpeaker('jarvis', phrase);
+        
+        recognitionActive = false;
+        if (voiceEngine) { try { voiceEngine.stop(); } catch(e){} }
+
+        const synthesis = window.speechSynthesis;
+        const speech = new SpeechSynthesisUtterance(phrase);
+        const systemVoices = synthesis.getVoices();
+        
+        let jarvisVoice = systemVoices.find(v => v.name.includes("Google UK English Male") || v.name.includes("Daniel") || v.name.includes("Arthur"));
+        if (!jarvisVoice) jarvisVoice = systemVoices.find(v => v.lang.startsWith('en-GB') || v.lang.startsWith('en'));
+        if (jarvisVoice) speech.voice = jarvisVoice;
+        
+        speech.pitch = 0.72; 
+        speech.rate = 1.05;
+
+        speech.onend = () => { 
+            // Reset UI back to idle when done speaking
+            setSpeaker('idle');
+
+            if (document.getElementById('jarvisMode').value === 'on' && voiceEngine) {
+                recognitionActive = true;
+                try { voiceEngine.start(); } catch(err) {} 
+            }
+        };
+        synthesis.speak(speech);
+    }
+
+    function toggleJarvisInterface() {
+        const mode = document.getElementById('jarvisMode').value;
+        const statusField = document.getElementById('jarvisStatus');
+        const SpeechEngineAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        if (mode === 'off') {
+            recognitionActive = false;
+            if (voiceEngine) try { voiceEngine.stop(); } catch(e){}
+            statusField.innerText = "CORE DEACTIVATED"; statusField.style.color = "#aaa";
+            setSpeaker('idle', 'VOICE MODULE OFFLINE');
+            return;
+        }
+
+        if (!SpeechEngineAPI) {
+            statusField.innerText = "BROWSER INCOMPATIBLE"; statusField.style.color = "#ff3d00"; return;
+        }
+
+        if (!voiceEngine) {
+            voiceEngine = new SpeechEngineAPI();
+            voiceEngine.continuous = true;
+            voiceEngine.interimResults = false;
+            voiceEngine.lang = 'en-US';
+
+            voiceEngine.onstart = () => { 
+                statusField.innerText = "LISTENING FOR 'JARVIS'"; statusField.style.color = "#00ff00"; 
+                setSpeaker('idle', 'Listening for wake word...');
+            };
+            
+            voiceEngine.onend = () => { 
+                if (recognitionActive && document.getElementById('jarvisMode').value === 'on') {
+                    try { voiceEngine.start(); } catch(err) {} 
+                }
+            };
+
+            voiceEngine.onresult = (event) => {
+                const rawStream = event.results[event.resultIndex][0].transcript.toLowerCase().trim();
+                
+                if (rawStream.includes("jarvis") || jarvisAttentive) {
+                    setSpeaker('user', rawStream); 
+                    setTimeout(() => processJarvisCommand(rawStream), 800); // Slight delay so user can read their prompt
+                }
+            };
+        }
+
+        recognitionActive = true;
+        try { voiceEngine.start(); } catch(e) {}
+    }
+
+    async function queryNeuralTextNet(promptText) {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        if (!apiKey) {
+            speakJarvis("Sir, my global neural link is offline. Please input a valid API key within the debug menu.", false);
+            jarvisAttentive = false;
+            return;
+        }
+        
+        setSpeaker('jarvis', 'Processing request...'); 
+        
+        const systemInstructionText = `You are J.A.R.V.I.S., Iron Man's AI assistant. You are chatting with the user in a relaxed, chill manner. Answer their general question directly with your signature crisp British wit and charm. Keep your response short and highly conversational (1-2 sentences max). Do NOT add closing questions like "Is there anything else?" because the system handles that automatically.`;
+
+        let apiContents = [];
+        for (let i = 0; i < conversationHistory.length; i++) {
+            apiContents.push(conversationHistory[i]);
+        }
+        
+        apiContents.push({ role: "user", parts: [{ text: promptText }] });
+        
+        try {
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: systemInstructionText }] },
+                    contents: apiContents
+                })
+            });
+            
+            const payloadData = await response.json();
+            
+            if (payloadData.candidates && payloadData.candidates.length > 0) {
+                let textResult = payloadData.candidates[0].content.parts[0].text;
+                textResult = textResult.replace(/[*_#`]/g, ''); 
+                
+                speakJarvis(textResult, true); 
+                
+                conversationHistory.push({ role: "user", parts: [{ text: promptText }] });
+                conversationHistory.push({ role: "model", parts: [{ text: textResult }] });
+                
+                if (conversationHistory.length > 6) {
+                    conversationHistory = conversationHistory.slice(conversationHistory.length - 6);
+                }
+            } else if (payloadData.error) {
+                speakJarvis(`Sir, the uplink encountered an error. Code: ${payloadData.error.code}.`, false);
+            }
+        } catch (e) {
+            speakJarvis("Connection dropped, sir. The server network failed to respond.", false);
+        }
+    }
+
+    async function queryNeuralVisionNet(promptText) {
+        const apiKey = document.getElementById('apiKey').value.trim();
+        if (!apiKey) {
+            speakJarvis("Sir, my global neural link is offline. Please input a valid API key within the debug menu.", false);
+            jarvisAttentive = false;
+            return;
+        }
+        
+        setSpeaker('jarvis', 'Analyzing camera matrix...'); 
+        
+        const snapshotCanvas = document.createElement('canvas');
+        snapshotCanvas.width = 320; 
+        snapshotCanvas.height = (video.videoHeight || 480) * (320 / (video.videoWidth || 640));
+        const snapshotCtx = snapshotCanvas.getContext('2d');
+        snapshotCtx.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+        
+        const base64ImgRaw = snapshotCanvas.toDataURL('image/jpeg', 0.5);
+        const cleanBase64Data = base64ImgRaw.split(',')[1]; 
+        
+        const detectedClasses = [...new Set(trackedObjects.map(t => t.class))];
+        const sensorDataString = detectedClasses.length > 0 
+            ? `[SYSTEM SENSOR DATA: Currently tracking ${detectedClasses.join(", ")} in the frame.]` 
+            : `[SYSTEM SENSOR DATA: No standard objects detected by local radar.]`;
+
+        const systemInstructionText = `You are J.A.R.V.I.S., Iron Man's AI assistant. You are processing the user's camera feed. Analyze the provided image frame and respond directly to what they are seeing. Be highly concise (1-2 sentences max), perceptive, and use your signature crisp British wit. Do NOT add closing questions like "Is there anything else?" because the system handles that automatically.
+        CRITICAL: Adapt to whatever the user points you at. Be hyper-specific. ${sensorDataString}`;
+
+        let apiContents = [];
+        for (let i = 0; i < conversationHistory.length; i++) {
+            apiContents.push(conversationHistory[i]);
+        }
+        
+        apiContents.push({
+            role: "user",
+            parts: [
+                { inlineData: { mimeType: "image/jpeg", data: cleanBase64Data } },
+                { text: promptText }
+            ]
+        });
+        
+        try {
+            const apiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    systemInstruction: { parts: [{ text: systemInstructionText }] },
+                    contents: apiContents
+                })
+            });
+            
+            const payloadData = await response.json();
+            
+            if (payloadData.candidates && payloadData.candidates.length > 0) {
+                let textResult = payloadData.candidates[0].content.parts[0].text;
+                textResult = textResult.replace(/[*_#`]/g, ''); 
+                
+                speakJarvis(textResult, true); 
+                
+                conversationHistory.push({ role: "user", parts: [{ text: promptText }] });
+                conversationHistory.push({ role: "model", parts: [{ text: textResult }] });
+                
+                if (conversationHistory.length > 6) {
+                    conversationHistory = conversationHistory.slice(conversationHistory.length - 6);
+                }
+            } else if (payloadData.error) {
+                speakJarvis(`Sir, the vision network link rejected the payload. Error code: ${payloadData.error.code}.`, false);
+            }
+        } catch (e) {
+            speakJarvis("Connection dropped, sir. The server vision network failed to respond.", false);
+        }
+    }
+
+    function processJarvisCommand(input) {
+        let command = input.replace(/jarvis/g, "").trim();
+
+        if (command === "") {
+            speakJarvis("Yes, sir? I am online. Would you like me to scan the camera feed, or do you have a query?", false);
+            jarvisAttentive = true; 
+            return;
+        }
+
+        jarvisAttentive = false; 
+
+        if (command.includes("what are you tracking") || command.includes("targets")) {
+            if (trackedObjects.length === 0) {
+                speakJarvis("The local scanner matrix is currently clear, sir.", true);
+            } else {
+                const uniqueClasses = [...new Set(trackedObjects.map(t => t.class))];
+                speakJarvis(`The local tactical array has identified ${trackedObjects.length} anomalies, primarily ${uniqueClasses.join(" and ")} signatures.`, true);
+            }
+            return;
+        } 
+        if (command.includes("status") || command.includes("system")) {
+            speakJarvis(`Subroutines are functional. Neural tracking link is completely stable.`, true);
+            return;
+        } 
+        if (command.includes("clear memory") || command.includes("forget everything")) {
+            conversationHistory = [];
+            speakJarvis("Conversational memory buffers have been flushed, sir.", true);
+            return;
+        }
+        if (command.includes("clear matrix") || command.includes("wipe targets")) {
+            trackedObjects = []; latestPredictions = []; lockedTargetId = null;
+            speakJarvis("Flushing targeting data buffers.", true);
+            return;
+        } 
+        
+        const visionKeywords = ["look", "see", "camera", "view", "scan", "feed", "picture", "in front", "what is this", "what is that", "showing you"];
+        const isVisionQuery = visionKeywords.some(keyword => command.includes(keyword));
+        
+        if (isVisionQuery) {
+            queryNeuralVisionNet(command);
+        } else {
+            queryNeuralTextNet(command);
+        }
+    }
+
+    async function init() {
+      try {
+        document.getElementById('status').innerHTML = "SYS: ONLINE<br>AI: DOWNLOADING VISION NET...";
+        model = await cocoSsd.load();
+        document.getElementById('status').innerHTML = "SYS: ONLINE<br>AI: ACTIVE";
+        window.speechSynthesis.getVoices(); 
+      } catch (e) {
+        document.getElementById('status').innerHTML = "SYS: ERROR<br>VISION CORE FAILED";
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: { ideal: "environment" } }, 
+            audio: false 
+        });
+        video.srcObject = stream;
+        videoTrack = stream.getVideoTracks()[0];
+        
+        setTimeout(() => {
+            try {
+                const capabilities = videoTrack.getCapabilities();
+                const optSlider = document.getElementById('optZoom');
+                if (capabilities.zoom) {
+                    optSlider.min = capabilities.zoom.min; optSlider.max = capabilities.zoom.max;
+                    optSlider.step = capabilities.zoom.step || 0.1; optSlider.disabled = false;
+                    document.getElementById('optStatus').innerText = "LENS LINKED"; document.getElementById('optStatus').style.color = "#00ff00";
+                }
+            } catch(err) {}
+        }, 500);
+
+        video.onloadedmetadata = () => { 
+            canvas.width = video.videoWidth || 640; 
+            canvas.height = video.videoHeight || 480;
+            runInferenceLoop(); 
+            requestAnimationFrame(renderLoop); 
+        };
+      } catch (e) {
+        document.getElementById('status').innerHTML = "SYS: ERROR<br>CAM FAILED";
+      }
+    }
+
+    async function runInferenceLoop() {
+        if (video.readyState === 4 && !isPredicting) {
+            isPredicting = true; 
+            const dZoom = parseFloat(document.getElementById('digZoom').value);
+            const sw = (video.videoWidth || 640) / dZoom, sh = (video.videoHeight || 480) / dZoom;
+            const sx = ((video.videoWidth || 640) - sw) / 2, sy = ((video.videoHeight || 480) - sh) / 2;
+            
+            aiCanvas.width = 640; aiCanvas.height = 640 / (sw / sh); 
+            
+            if (document.getElementById('lowLightBoost').value === 'on') {
+                aiCtx.filter = 'brightness(2.5) contrast(1.5) saturate(0.5)';
+            }
+            aiCtx.drawImage(video, sx, sy, sw, sh, 0, 0, aiCanvas.width, aiCanvas.height);
+            aiCtx.filter = 'none'; 
+            
+            try {
+                let preds = await model.detect(aiCanvas);
+                const scaleX = sw / aiCanvas.width, scaleY = sh / aiCanvas.height;
+                preds = preds.map(p => ({ class: p.class, bbox: [ sx + (p.bbox[0] * scaleX), sy + (p.bbox[1] * scaleY), p.bbox[2] * scaleX, p.bbox[3] * scaleY ] }));
+                const tMode = document.getElementById('tMode').value;
+                if(tMode !== 'all') preds = preds.filter(p => p.class === tMode);
+                latestPredictions = preds;
+            } catch (error) {}
+            isPredicting = false;
+        }
+        setTimeout(runInferenceLoop, 50); 
+    }
+
+    function updateTrackerMath() {
+        let unassignedPredictions = [...latestPredictions];
+        const dZoom = parseFloat(document.getElementById('digZoom').value);
+        
+        trackedObjects.forEach(track => {
+            let closestIndex = -1, minDistance = 150 / dZoom; 
+            unassignedPredictions.forEach((pred, i) => {
+                if (pred.class !== track.class) return;
+                const cx1 = track.targetX + (track.targetW / 2), cy1 = track.targetY + (track.targetH / 2);
+                const cx2 = pred.bbox[0] + (pred.bbox[2] / 2), cy2 = pred.bbox[1] + (pred.bbox[3] / 2);
+                const dist = Math.hypot(cx2 - cx1, cy2 - cy1);
+                if (dist < minDistance) { minDistance = dist; closestIndex = i; }
+            });
+
+            if (closestIndex !== -1) {
+                let p = unassignedPredictions[closestIndex];
+                track.vx = p.bbox[0] - track.targetX; track.vy = p.bbox[1] - track.targetY;
+                track.targetX = p.bbox[0]; track.targetY = p.bbox[1];
+                track.targetW = p.bbox[2]; track.targetH = p.bbox[3];
+                track.life = 15; unassignedPredictions.splice(closestIndex, 1); 
+            } else {
+                track.life -= 1; track.vx *= 0.85; track.vy *= 0.85;
+            }
+        });
+
+        if (lockedTargetId && !trackedObjects.map(t => t.id).includes(lockedTargetId)) lockedTargetId = null; 
+        trackedObjects = trackedObjects.filter(t => t.life > 0);
+
+        unassignedPredictions.forEach(pred => {
+            trackedObjects.push({
+                class: pred.class, id: Math.floor(Math.random() * 9999).toString().padStart(4, '0'), 
+                subClass: pred.class === 'person' ? (Math.random() > 0.5 ? "TYPE-A" : "TYPE-B") : "UNKNOWN",
+                x: pred.bbox[0], y: pred.bbox[1], w: pred.bbox[2], h: pred.bbox[3], 
+                targetX: pred.bbox[0], targetY: pred.bbox[1], targetW: pred.bbox[2], targetH: pred.bbox[3],
+                vx: 0, vy: 0, life: 15
+            });
+        });
+    }
+
+    function renderLoop() {
+      if (video.videoWidth && (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight)) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+      }
+      
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const dZoom = parseFloat(document.getElementById('digZoom').value), cx = canvas.width / 2, cy = canvas.height / 2;
+      updateTrackerMath();
+
+      trackedObjects.forEach(track => {
+        track.x += (track.targetX - track.x) * 0.2; track.y += (track.targetY - track.y) * 0.2;
+        track.w += (track.targetW - track.w) * 0.2; track.h += (track.targetH - track.h) * 0.2;
+
+        const drawX = cx + (track.x - cx) * dZoom, drawY = cy + (track.y - cy) * dZoom;
+        const drawW = track.w * dZoom, drawH = track.h * dZoom, len = 30; 
+        const targetIsIsolated = track.id === lockedTargetId;
+
+        ctx.strokeStyle = targetIsIsolated ? lockColor : uiColor; ctx.lineWidth = targetIsIsolated ? 6 : 3;
+        ctx.globalAlpha = track.life / 15; 
+        
+        ctx.beginPath(); ctx.moveTo(drawX, drawY+len); ctx.lineTo(drawX, drawY); ctx.lineTo(drawX+len, drawY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX+drawW-len, drawY); ctx.lineTo(drawX+drawW, drawY); ctx.lineTo(drawX+drawW, drawY+len); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX, drawY+drawH-len); ctx.lineTo(drawX, drawY+drawH); ctx.lineTo(drawX+len, drawY+drawH); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX+drawW-len, drawY+drawH); ctx.lineTo(drawX+drawW, drawY+drawH); ctx.lineTo(drawX+drawW, drawY+drawH-len); ctx.stroke();
+        
+        ctx.fillStyle = targetIsIsolated ? lockColor : uiColor; ctx.font = "bold 13px Consolas, monospace";
+        if (targetIsIsolated) ctx.fillText(`[ LOCKED ]`, drawX, drawY - 42);
+        ctx.fillText(`ID:${track.id} ${track.class.toUpperCase()}`, drawX, drawY - 25);
+        ctx.fillText(`PROF:${track.subClass}`, drawX, drawY - 8);
+
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(drawX + drawW/2 - 10, drawY + drawH/2); ctx.lineTo(drawX + drawW/2 + 10, drawY + drawH/2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(drawX + drawW/2, drawY + drawH/2 - 10); ctx.lineTo(drawX + drawW/2, drawY + drawH/2 + 10); ctx.stroke();
+
+        if (document.getElementById('pathPredictor').value === 'on' && (Math.abs(track.vx) > 0.2 || Math.abs(track.vy) > 0.2)) {
+            const startVectorX = drawX + drawW / 2, startVectorY = drawY + drawH / 2;
+            const forecastX = startVectorX + (track.vx * 8) * dZoom, forecastY = startVectorY + (track.vy * 8) * dZoom;
+
+            ctx.lineWidth = 2; ctx.strokeStyle = targetIsIsolated ? lockColor : uiColor;
+            ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(startVectorX, startVectorY); ctx.lineTo(forecastX, forecastY); ctx.stroke(); ctx.setLineDash([]); 
+
+            ctx.fillStyle = targetIsIsolated ? lockColor : uiColor; ctx.beginPath(); ctx.arc(forecastX, forecastY, 4, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = "9px Consolas, monospace"; ctx.fillText("TRAJECTORY EST", forecastX + 8, forecastY + 3);
+        }
+        ctx.globalAlpha = 1.0; 
+      });
+      requestAnimationFrame(renderLoop);
+    }
+    
+    window.onload = init;
+  </script>
+</body>
+</html>
